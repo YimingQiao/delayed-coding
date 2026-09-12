@@ -1,0 +1,131 @@
+# Delayed Coding
+
+A standalone Rust entropy coder extracted from
+[Blitzcrank](https://github.com/embryo-labs/Blitzcrank), with a C interface for
+embedding in C/C++ systems.
+
+**Status: experimental, pre-release.** The Rust core and C ABI work, and scalar
+24-bit payloads are checked against the original Blitzcrank implementation.
+The crate is not yet published to crates.io. API and new format conventions are
+not frozen. SIMD rANS comparisons and full Blitzcrank migration are still pending.
+
+Delayed Coding encodes a sequence of symbols using caller-provided probability
+models. It decodes forward and lets the caller select a different model for every
+symbol. This is useful for structured records and conditional probability models.
+It is an entropy coding building block, not a replacement for an LZ compressor or
+a self-describing file format.
+
+## Try it
+
+Rust 1.88 or newer; no third-party dependencies for the core or C ABI.
+
+```sh
+git clone https://github.com/YimingQiao/delayed-coding.git
+cd delayed-coding
+cargo run --release --example roundtrip
+cargo run --release --example conditional
+cargo test --workspace
+```
+
+```rust
+use delayed_coding::{Model, encode, decode_into};
+
+let model = Model::from_counts(&[10, 5, 1])?;
+let symbols = [0, 0, 1, 0, 2, 0];
+let payload = encode::<24>(&model, &symbols)?;
+let mut restored = [0; 6];
+decode_into::<24>(&model, &payload, &mut restored)?;
+assert_eq!(restored, symbols);
+# Ok::<(), delayed_coding::Error>(())
+```
+
+For a downstream Cargo project, pin a Git revision until a crate release exists:
+
+```toml
+[dependencies]
+# Replace REVISION with the full commit you have tested.
+delayed-coding = { git = "https://github.com/YimingQiao/delayed-coding", rev = "REVISION" }
+```
+
+## Interfaces
+
+- `Model::new`: normalized frequencies summing to 65,536, up to 65,536 symbol IDs.
+- `Model::from_counts`: deterministic normalization preserving observed symbols.
+- `encode_into`: caller-owned output and a reusable `Workspace`; returns the
+  occupied range because the encoder writes backwards.
+- `encode_events_into` / `Decoder::read`: explicit per-symbol model selection.
+- `encode_interleaved_into::<24, 4>` / `decode_interleaved_into::<24, 4>`: four
+  round-robin states sharing one payload. Rust supports 1/2/4/8 states.
+- `Model::with_tables`: optional 128 KiB encode and/or 512 KiB decode tables.
+  Compact alias tables are the default; table choices do not change payloads.
+
+The core forbids unsafe code. Models are immutable and shareable; each encoder
+owns its workspace and each decoder owns its state. The encoder still needs a
+forward scheduling pass and a backward embedding pass; this is not an online
+forward encoder. `24` is the delay threshold, not the probability precision.
+
+For C/C++:
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
+ctest --test-dir build --output-on-failure
+```
+
+See [the C example](examples/c_roundtrip.c) and [public header](include/delayed_coding.h).
+Downstream CMake projects can use `add_subdirectory` and link
+`DelayedCoding::delayed_coding`. The C ABI currently exposes fixed-model blocks,
+delay 16/24/32, and one/four states. Rust additionally exposes conditional models.
+This batch boundary avoids one FFI call per symbol; Blitzcrank's conditional C++
+models still need a separately measured adapter.
+
+## Performance and validation
+
+[Benchmark instructions](benchmarks/README.md) compare against **unmodified,
+pinned upstream ryg_rans**, including scalar and four-state byte/64-bit variants.
+Both sides consume/produce the same u32 symbol representation and use identical
+16-bit normalized frequencies. Reports include payload size alongside speed.
+
+There is no general claim of outperforming rANS. Current measurements are kernel
+experiments on one x86-64 machine, with prebuilt models and reused buffers. They
+exclude model serialization, indexing and whole-file overhead. See the
+[initial findings](benchmarks/RESULTS.md) and raw CSVs.
+
+Tests cover exhaustive short binary strings, every 16-bit code point, random and
+conditional models, reciprocal-division boundaries, interleaving against independent
+scalar streams, truncation, and malformed payloads. To compare against the original
+research implementation:
+
+```sh
+cmake -S . -B build-legacy -DCMAKE_BUILD_TYPE=Release \
+  -DDELAYED_CODING_BLITZCRANK_DIR=/path/to/original/Blitzcrank
+cmake --build build-legacy -j
+ctest --test-dir build-legacy --output-on-failure
+```
+
+The reference checkout must use `kDelayedCoding=24`; the tested base is
+`0ed9c97908c51440b30a2eef3c1b90325dd2c87c`.
+
+## Format and integration
+
+Raw payloads contain big-endian 16-bit words. Store the model, delay, lane count
+and original symbol count externally. Incorrect metadata can produce incorrect
+symbols without an error. Final-state checks do not replace a checksum, and the
+caller must bound requested output sizes. See [format policy](docs/FORMAT.md).
+
+Random record access belongs to the container: independent blocks, reusable models
+and an offset index. Blitzcrank remains the structured-data application; this
+repository owns the entropy core. The [execution plan](PLAN.md) tracks migration,
+performance work and release gates.
+
+## Origin and contributing
+
+Based on Yiming Qiao, Yihan Gao and Huanchen Zhang's VLDB 2024 paper,
+[Blitzcrank: Fast Semantic Compression for In-memory Online Transaction Processing](https://www.vldb.org/pvldb/vol17/p2528-zhang.pdf).
+The [original implementation](https://github.com/embryo-labs/Blitzcrank) remains
+the research reference. MIT licensed; original notices are retained.
+
+Useful contributions include reproducible workloads, C/C++ integration feedback,
+ARM measurements, malformed-input regressions and profiling. Please report the
+commit, CPU, compiler, delay, table mode, lane count, block size and both payload
+size and speed. See [CONTRIBUTING.md](CONTRIBUTING.md).

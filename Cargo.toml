@@ -1,0 +1,33 @@
+[package]
+name = "delayed-coding"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+license = "MIT"
+description = "Delayed Coding: a standalone entropy coder extracted from Blitzcrank"
+repository = "https://github.com/YimingQiao/delayed-coding"
+readme = "README.md"
+keywords = ["compression", "entropy", "coding", "blitzcrank"]
+categories = ["compression", "algorithms"]
+
+[workspace]
+members = ["ffi"]
+default-members = ["."]
+resolver = "2"
+
+[features]
+default = []
+# Differential testing and ablation; changes speed, never the bitstream.
+reference-division = []
+
+[[bench]]
+name = "throughput"
+harness = false
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+[profile.bench]
+lto = "thin"
+codegen-units = 1

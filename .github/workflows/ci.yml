@@ -1,0 +1,34 @@
+name: correctness
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        toolchain: ["1.88.0", stable]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.toolchain }}
+          components: rustfmt, clippy
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets --all-features --offline --locked -- -D warnings
+      - run: cargo test --workspace --offline --locked
+      - run: cargo test --workspace --release --offline --locked
+      - run: cargo test --features reference-division --offline --locked
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j2 && ctest --test-dir build --output-on-failure
+  legacy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@v4
+        with:
+          repository: embryo-labs/Blitzcrank
+          ref: 0ed9c97908c51440b30a2eef3c1b90325dd2c87c
+          path: original-blitzcrank
+          lfs: false
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DDELAYED_CODING_BLITZCRANK_DIR="$PWD/original-blitzcrank" && cmake --build build -j2 && ctest --test-dir build --output-on-failure

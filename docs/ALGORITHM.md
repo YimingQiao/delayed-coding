@@ -1,0 +1,75 @@
+# Delayed Coding implementation notes
+
+This document describes this implementation; the [paper](https://www.vldb.org/pvldb/vol17/p2528-zhang.pdf)
+contains the original derivation. Probability precision is fixed at 16 bits.
+Delay threshold D is independently selected in [16, 32] by the Rust API.
+
+## Symbol mapping
+
+A model assigns each supported symbol a positive integer weight w, and weights
+sum to 65536. An alias table partitions all possible 16-bit code words into
+power-of-two-sized buckets. A cutoff chooses one of two entries per bucket.
+Each entry supplies symbol ID, weight and an adjustment that recovers a remainder
+r in [0, w). A symbol may own multiple disjoint code segments.
+
+The encoder performs the inverse mapping `(symbol, r) -> word`. Short segment
+lists are scanned; long lists use binary search over cumulative segment ends.
+Optional direct tables preserve exactly the same mapping:
+
+- encode: 65536 u16 entries, indexed by symbol prefix weight plus r (128 KiB);
+- decode: 65536 packed u64 entries containing symbol, w-1 and r (512 KiB).
+
+The packing stores w-1 because weight 65536 must remain representable. Segment
+boundaries can also equal 65536, so they cannot be stored in u16.
+
+## Forward decode and backward encode
+
+Decoder state starts at numerator n=0, denominator d=1, with no virtual word.
+For each symbol:
+
+1. Read a pending virtual word if one exists; otherwise consume a physical u16.
+2. Look up `(symbol, w, r)` and update `n = n*w + r`, `d = d*w`.
+3. If `d >= 2^D`, save `n & 65535` as the next virtual word, and shift both
+   n and d right by 16.
+
+The encoder first simulates the denominator updates to learn which symbols use
+virtual words. It then walks backwards from n=0, splitting n into quotient and
+remainder by w. The remainder identifies the symbol's code word. Virtual words
+are embedded back into n; physical words are written backwards to the output.
+
+Before multiplication d < 2^D and w <= 2^16, so the product is < 2^(D+16).
+Valid backward states obey the corresponding bound. With D <= 32, the encoder
+state is < 2^48, so u64 arithmetic has headroom. Malformed payloads do not inherit
+the valid-numerator invariant; the decoder uses explicit wrapping arithmetic and
+bounded input reads, avoiding Debug-only overflow panics. These checks are not an
+integrity guarantee.
+
+## Exact reciprocal division
+
+For f >= 2 precompute `c = ceil(2^64 / f)`. Then the high half of `n*c` is
+`floor(n/f)` for n < 2^48 and f <= 2^16. To see this, write
+`c/2^64 = 1/f + e`, with 0 <= e < 1/2^64. Then n*e < 1/65536 <= 1/f,
+smaller than the distance from any nonintegral multiple of 1/f to the next integer.
+The integral case has error < 1 as well. Frequency 1 uses q=n directly.
+
+Rust's u128 multiply expresses the required high product. The
+`reference-division` feature uses ordinary division for differential tests and
+performance ablation. Tests exercise all 65536 possible frequencies at state and
+quotient boundaries. No floating-point approximation is involved.
+
+## Interleaving
+
+L independent states serve symbols in round-robin order: symbol i uses state
+`i % L`. Physical words from these states share one stream in decode order.
+Reverse encoding naturally emits the same stream. Each state starts from (0,1)
+and is checked at the end. No separate stream offsets or serialized rANS-like
+terminal states are needed, but additional states can increase short-block payloads.
+
+The lane count is essential external metadata. Rust supports L=1/2/4/8; the C
+block API currently dispatches L=1/4. Tests independently encode each scalar lane
+and merge its physical words according to the forward schedule, then compare the
+result byte-for-byte with the interleaved encoder.
+
+Independent arithmetic states do not remove dependencies in a conditional model.
+An application must still determine each context from already available symbols.
+The current interleaved implementation is scalar, not SIMD.
