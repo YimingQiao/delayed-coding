@@ -151,50 +151,105 @@ void measure(const std::string& distribution, const std::string& name, Codec& co
               << decode_ns / input.size() << ',' << encode_ns << ',' << decode_ns << '\n';
 }
 
+static void benchmark_input(const std::string &distribution, const Model &model,
+                            const std::vector<uint32_t> &input) {
+    const size_t count = input.size();
+    Delayed d16(model, count, 16), d24(model, count, 24), d32(model, count, 32);
+    Delayed de(model, count, 24, 1), dd(model, count, 24, 2), db(model, count, 24, 3);
+    Delayed d4(model, count, 24, 0, 4), d4e(model, count, 24, 1, 4), d4b(model, count, 24, 3, 4);
+    Rans<1, false> b1(model, count);
+    Rans<4, false> b4(model, count);
+    Rans<1, true> w1(model, count);
+    Rans<4, true> w4(model, count);
+#ifdef DELAYED_CODING_HAVE_RANS_ALIAS
+    RansAlias<1> a1(model, count);
+    RansAlias<4> a4(model, count);
+#endif
+    measure(distribution, "delayed16", d16, input);
+    measure(distribution, "delayed24", d24, input);
+    measure(distribution, "delayed32", d32, input);
+    measure(distribution, "delayed24_direct_encode", de, input);
+    measure(distribution, "delayed24_direct_decode", dd, input);
+    measure(distribution, "delayed24_direct_both", db, input);
+    measure(distribution, "delayed24_4", d4, input);
+    measure(distribution, "delayed24_4_direct_encode", d4e, input);
+    measure(distribution, "delayed24_4_direct_both", d4b, input);
+    measure(distribution, "rans_byte_1", b1, input);
+    measure(distribution, "rans_byte_4", b4, input);
+    measure(distribution, "rans64_1", w1, input);
+    measure(distribution, "rans64_4", w4, input);
+#ifdef DELAYED_CODING_HAVE_RANS_ALIAS
+    measure(distribution, "rans_alias_1", a1, input);
+    measure(distribution, "rans_alias_4", a4, input);
+#endif
+}
+
+// A deterministic shared normalization policy, performed once outside timing.
+// Reserve one slot per observed byte, then apportion by largest remainder.
+static std::array<uint32_t, 256> normalize_counts(const std::vector<uint32_t> &input) {
+    std::array<uint32_t, 256> counts{}, weights{};
+    for (auto symbol : input)
+        ++counts[symbol];
+    const uint32_t active = std::count_if(counts.begin(), counts.end(), [](auto n) { return n != 0; });
+    const uint64_t remaining = 65536 - active;
+    std::vector<std::pair<uint64_t, unsigned>> remainders;
+    uint32_t assigned = 0;
+    for (unsigned symbol = 0; symbol < 256; ++symbol) {
+        if (counts[symbol] == 0) continue;
+        const uint64_t scaled = counts[symbol] * remaining;
+        weights[symbol] = 1 + scaled / input.size();
+        assigned += weights[symbol];
+        remainders.emplace_back(scaled % input.size(), symbol);
+    }
+    std::sort(remainders.begin(), remainders.end(), [](auto a, auto b) {
+        return a.first != b.first ? a.first > b.first : a.second < b.second;
+    });
+    for (size_t i = 0; i < 65536 - assigned; ++i) ++weights[remainders.at(i).second];
+    return weights;
+}
+
+static std::vector<uint32_t> read_symbols(const std::string& path) {
+    std::ifstream file(path, std::ios::binary | std::ios::ate);
+    if (!file) throw std::invalid_argument("cannot open input file");
+    const auto length = file.tellg();
+    if (length <= 0 || length > (1u << 26)) throw std::invalid_argument("file must contain 1..67108864 bytes");
+    std::vector<unsigned char> bytes(static_cast<size_t>(length));
+    file.seekg(0);
+    if (!file.read(reinterpret_cast<char*>(bytes.data()), bytes.size()))
+        throw std::runtime_error("cannot read complete input file");
+    std::cerr << "input file=" << path << " bytes=" << bytes.size() << '\n';
+    return {bytes.begin(), bytes.end()};
+}
+
 int main(int argc, char** argv) {
     try {
-        const size_t count = argc > 1 ? std::stoull(argv[1]) : 4096;
-        if (argc > 3 || (argc == 3 && std::string(argv[2]) != "--check"))
-            throw std::invalid_argument("usage: compare_rans [symbols] [--check]");
-        validate_only = argc == 3;
-        if (count == 0 || count > (1u << 26)) throw std::invalid_argument("symbols must be 1..67108864");
-        std::mt19937 random(123456);
+        const bool from_file = argc > 1 && std::string(argv[1]) == "--file";
+        const int base_args = from_file ? 3 : 2;
+        if ((from_file && argc < 3) || argc > base_args + 1 ||
+            (argc == base_args + 1 && std::string(argv[base_args]) != "--check"))
+            throw std::invalid_argument("usage: compare_rans [symbols | --file PATH] [--check]");
+        validate_only = argc == base_args + 1;
         std::cout << "distribution,symbols,codec,payload_bytes,bits_per_symbol,encode_ns_per_symbol,decode_ns_per_symbol,encode_ns_per_block,decode_ns_per_block\n";
         std::cout << std::fixed << std::setprecision(4);
-        for (const std::string distribution : {"uniform256", "uniform16", "skewed", "near_constant"}) {
-            std::array<uint32_t, 256> weights{};
-            if (distribution == "uniform256") weights.fill(256);
-            if (distribution == "uniform16") for (size_t i = 0; i < 16; ++i) weights[i] = 4096;
-            if (distribution == "skewed") { weights.fill(128); weights[0] += 32768; }
-            if (distribution == "near_constant") { weights.fill(1); weights[0] = 65536 - 255; }
-            const Model model(weights);
-            std::vector<uint32_t> input(count);
-            for (auto& symbol : input) symbol = model.lookup[random() & 65535];
-            Delayed d16(model, count, 16), d24(model, count, 24), d32(model, count, 32);
-            Delayed de(model, count, 24, 1), dd(model, count, 24, 2), db(model, count, 24, 3);
-            Delayed d4(model, count, 24, 0, 4), d4e(model, count, 24, 1, 4), d4b(model, count, 24, 3, 4);
-            Rans<1, false> b1(model, count); Rans<4, false> b4(model, count);
-            Rans<1, true> w1(model, count); Rans<4, true> w4(model, count);
-#ifdef DELAYED_CODING_HAVE_RANS_ALIAS
-            RansAlias<1> a1(model, count); RansAlias<4> a4(model, count);
-#endif
-            measure(distribution, "delayed16", d16, input);
-            measure(distribution, "delayed24", d24, input);
-            measure(distribution, "delayed32", d32, input);
-            measure(distribution, "delayed24_direct_encode", de, input);
-            measure(distribution, "delayed24_direct_decode", dd, input);
-            measure(distribution, "delayed24_direct_both", db, input);
-            measure(distribution, "delayed24_4", d4, input);
-            measure(distribution, "delayed24_4_direct_encode", d4e, input);
-            measure(distribution, "delayed24_4_direct_both", d4b, input);
-            measure(distribution, "rans_byte_1", b1, input);
-            measure(distribution, "rans_byte_4", b4, input);
-            measure(distribution, "rans64_1", w1, input);
-            measure(distribution, "rans64_4", w4, input);
-#ifdef DELAYED_CODING_HAVE_RANS_ALIAS
-            measure(distribution, "rans_alias_1", a1, input);
-            measure(distribution, "rans_alias_4", a4, input);
-#endif
+        if (from_file) {
+            const auto input = read_symbols(argv[2]);
+            const Model model(normalize_counts(input));
+            benchmark_input("file", model, input);
+        } else {
+            const size_t count = argc > 1 ? std::stoull(argv[1]) : 4096;
+            if (count == 0 || count > (1u << 26)) throw std::invalid_argument("symbols must be 1..67108864");
+            std::mt19937 random(123456);
+            for (const std::string distribution : {"uniform256", "uniform16", "skewed", "near_constant"}) {
+                std::array<uint32_t, 256> weights{};
+                if (distribution == "uniform256") weights.fill(256);
+                if (distribution == "uniform16") for (size_t i = 0; i < 16; ++i) weights[i] = 4096;
+                if (distribution == "skewed") { weights.fill(128); weights[0] += 32768; }
+                if (distribution == "near_constant") { weights.fill(1); weights[0] = 65536 - 255; }
+                const Model model(weights);
+                std::vector<uint32_t> input(count);
+                for (auto& symbol : input) symbol = model.lookup[random() & 65535];
+                benchmark_input(distribution, model, input);
+            }
         }
         std::cerr << "validation checksum=" << checksum << '\n';
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }

@@ -52,3 +52,18 @@ jobs:
           path: original-blitzcrank
           lfs: false
       - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DDELAYED_CODING_BLITZCRANK_DIR="$PWD/original-blitzcrank" && cmake --build build -j2 && ctest --test-dir build --output-on-failure
+  rans:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@v4
+        with:
+          repository: rygorous/ryg_rans
+          ref: c9d162d996fd600315af9ae8eb89d832576cb32d
+          path: upstream-rans
+      - run: >-
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          -DDELAYED_CODING_RANS_DIR="$PWD/upstream-rans"
+          -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+      - run: cmake --build build -j2 && ctest --test-dir build --output-on-failure

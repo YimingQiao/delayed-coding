@@ -72,5 +72,7 @@ if(DELAYED_CODING_RANS_DIR)
             add_test(NAME rans_roundtrip_${symbol_count}
                 COMMAND compare_rans ${symbol_count} --check)
         endforeach()
+        add_test(NAME rans_file_roundtrip
+            COMMAND compare_rans --file "${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt" --check)
     endif()
 endif()

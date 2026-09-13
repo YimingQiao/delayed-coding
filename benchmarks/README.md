@@ -9,6 +9,8 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
   -DDELAYED_CODING_RANS_DIR=/tmp/ryg_rans
 cmake --build build -j
 taskset -c 2 ./build/compare_rans 4096
+# Optional real byte file, measured as one block (1 byte becomes 1 u32 symbol):
+taskset -c 2 ./build/compare_rans --file /tmp/ryg_rans/book1
 ```
 
 Choose an available CPU on your machine; omit `taskset` on non-Linux systems.
@@ -42,8 +44,13 @@ best possible rANS encoder); their main purpose is a compact-lookup decoder comp
   checksum makes results observable; roundtrips are checked outside timing.
 - Repeated data and models are cache-warm. Synthetic data is generated from the
   benchmark's model. This does not cover mismatched models or changing distributions.
-- The C++ harness currently covers synthetic fixed models. SIMD rANS,
-  real-data same-process comparisons, randomized access, many-model comparisons
+- File mode reads 1 byte..64 MiB, derives one model from the entire input using
+  reserve-one/largest-remainder normalization, and supplies identical weights and
+  symbols to every codec. File I/O, histogram construction and model setup are
+  excluded. This is a zero-order entropy-kernel test, not whole-file compression;
+  it omits model metadata and does not exercise chunked/random-access storage.
+- The C++ harness currently covers fixed models. SIMD rANS,
+  randomized access, many-model comparisons
   against rANS, hardware counters and whole-block model/framing cost remain work.
 - Do not mix CPU flags, compilers, probability precision or lane counts without
   stating it. The initial CSVs use generic x86-64 Rust and GCC Release defaults,
