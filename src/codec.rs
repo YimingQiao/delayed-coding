@@ -198,7 +198,6 @@ pub struct Decoder<'a, const DELAY: u32 = 24, const LANES: usize = 1> {
 struct CodingState {
     numerator: u64,
     denominator: u64,
-    virtual_word: Option<u16>,
 }
 
 impl<'a, const DELAY: u32, const LANES: usize> Decoder<'a, DELAY, LANES> {
@@ -213,7 +212,6 @@ impl<'a, const DELAY: u32, const LANES: usize> Decoder<'a, DELAY, LANES> {
             states: [CodingState {
                 numerator: 0,
                 denominator: 1,
-                virtual_word: None,
             }; LANES],
             lane: 0,
             error: None,
@@ -226,7 +224,14 @@ impl<'a, const DELAY: u32, const LANES: usize> Decoder<'a, DELAY, LANES> {
             return Err(error);
         }
         let state = &mut self.states[self.lane];
-        let word = if let Some(word) = state.virtual_word.take() {
+        // Renormalize when a word is consumed, instead of materializing an
+        // Option after every symbol and checking it again on the next read.
+        // The denominator already carries the information that a virtual word
+        // exists; the numerator's low bits are that word.
+        let word = if state.denominator >= (1u64 << DELAY) {
+            let word = state.numerator as u16;
+            state.numerator >>= 16;
+            state.denominator >>= 16;
             word
         } else {
             let Some(bytes) = self
@@ -248,11 +253,6 @@ impl<'a, const DELAY: u32, const LANES: usize> Decoder<'a, DELAY, LANES> {
             .wrapping_mul(u64::from(decoded.frequency))
             .wrapping_add(u64::from(decoded.remainder));
         state.denominator *= u64::from(decoded.frequency);
-        if state.denominator >= (1u64 << DELAY) {
-            state.virtual_word = Some(state.numerator as u16);
-            state.numerator >>= 16;
-            state.denominator >>= 16;
-        }
         self.lane = (self.lane + 1) & (LANES - 1);
         Ok(decoded.symbol)
     }
@@ -267,11 +267,7 @@ impl<'a, const DELAY: u32, const LANES: usize> Decoder<'a, DELAY, LANES> {
         if self.position != self.input.len() {
             return Err(Error::TrailingInput);
         }
-        if self
-            .states
-            .iter()
-            .any(|s| s.numerator != 0 || s.virtual_word.is_some_and(|w| w != 0))
-        {
+        if self.states.iter().any(|s| s.numerator != 0) {
             return Err(Error::InvalidState);
         }
         Ok(())

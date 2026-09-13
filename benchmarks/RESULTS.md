@@ -43,3 +43,17 @@ The `initial`, `binary`, `tables` and `interleaved` CSVs were collected during
 development before the first repository commit. They document experiment history,
 not four separately versioned releases. Subsequent results should identify an
 exact source revision and any dirty patch in a run manifest.
+
+## Deferred normalization (2026-09-13)
+
+Starting from `e9634dd`, normalization moved to the next read of a state. The
+denominator encodes whether a virtual word exists, and the numerator holds its
+bits; a separate Option and the second branch were unnecessary. All property
+and original-C++ differential checks still pass.
+
+`results/2026-09-13-xeon-8474c-4096-deferred.csv` records the same harness, CPU and
+flags. Four-state compact decoding fell from about 3.1–3.3 to 2.58–2.64 ns/symbol
+across these four distributions. This is approximately 17–19% less time, without
+the 512 KiB decode table. Four-state rANS64 remained around 2.11–2.22 ns/symbol.
+Scalar throughput was largely unchanged. This is a measured implementation
+improvement, not a new compressed format.

@@ -32,6 +32,12 @@ For each symbol:
 3. If `d >= 2^D`, save `n & 65535` as the next virtual word, and shift both
    n and d right by 16.
 
+The optimized implementation defers step 3 until the next read of that state.
+It tests d directly and consumes n's low bits then. This removes the redundant
+pending-word flag and a second branch, while preserving physical word order.
+The unnormalized final numerator includes any pending word, so checking n=0
+also validates that pending word. Delaying the shift does not change bytes.
+
 The encoder first simulates the denominator updates to learn which symbols use
 virtual words. It then walks backwards from n=0, splitting n into quotient and
 remainder by w. The remainder identifies the symbol's code word. Virtual words
