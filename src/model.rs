@@ -22,7 +22,8 @@ struct Slot {
 #[derive(Clone, Copy, Debug)]
 struct Bucket {
     cutoff: u32,
-    slots: [Slot; 2],
+    left: Slot,
+    right: Slot,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -53,7 +54,11 @@ pub struct TableOptions {
 #[derive(Clone, Debug)]
 pub struct Model {
     pub(crate) symbols: Vec<Symbol>,
+    #[cfg(not(feature = "flat-alias"))]
+    buckets: Vec<Bucket>,
+    #[cfg(feature = "flat-alias")]
     cutoffs: Box<[u32]>,
+    #[cfg(feature = "flat-alias")]
     slots: Box<[Slot]>,
     segments: Vec<Segment>,
     shift: u32,
@@ -95,7 +100,8 @@ impl Model {
         let mut buckets = vec![
             Bucket {
                 cutoff: 0,
-                slots: [zero; 2],
+                left: zero,
+                right: zero,
             };
             bucket_count
         ];
@@ -104,18 +110,16 @@ impl Model {
             let (left_weight, left_symbol) = small.pop().unwrap_or((0, right_symbol));
             *bucket = Bucket {
                 cutoff: left_weight,
-                slots: [
-                    Slot {
-                        symbol: left_symbol,
-                        frequency: frequencies[left_symbol as usize],
-                        adjustment: 0,
-                    },
-                    Slot {
-                        symbol: right_symbol,
-                        frequency: frequencies[right_symbol as usize],
-                        adjustment: 0,
-                    },
-                ],
+                left: Slot {
+                    symbol: left_symbol,
+                    frequency: frequencies[left_symbol as usize],
+                    adjustment: 0,
+                },
+                right: Slot {
+                    symbol: right_symbol,
+                    frequency: frequencies[right_symbol as usize],
+                    adjustment: 0,
+                },
             };
             let remaining = right_weight - (bucket_size - left_weight);
             let list = if remaining < bucket_size {
@@ -129,11 +133,10 @@ impl Model {
         let mut lists: Vec<Vec<Segment>> = vec![Vec::new(); frequencies.len()];
         let mut position = 0u32;
         for bucket in &mut buckets {
-            for (slot, weight) in bucket
-                .slots
-                .iter_mut()
-                .zip([bucket.cutoff, bucket_size - bucket.cutoff])
-            {
+            for (slot, weight) in [
+                (&mut bucket.left, bucket.cutoff),
+                (&mut bucket.right, bucket_size - bucket.cutoff),
+            ] {
                 let id = slot.symbol as usize;
                 slot.adjustment = position as i32 - assigned[id] as i32;
                 if weight != 0 {
@@ -174,8 +177,15 @@ impl Model {
         }
         Ok(Self {
             symbols,
+            #[cfg(feature = "flat-alias")]
             cutoffs: buckets.iter().map(|b| b.cutoff).collect(),
-            slots: buckets.into_iter().flat_map(|b| b.slots).collect(),
+            #[cfg(feature = "flat-alias")]
+            slots: buckets
+                .into_iter()
+                .flat_map(|b| [b.left, b.right])
+                .collect(),
+            #[cfg(not(feature = "flat-alias"))]
+            buckets,
             segments,
             shift,
             mask: bucket_size - 1,
@@ -253,9 +263,13 @@ impl Model {
     }
     /// Allocated table storage, excluding Vec headers and allocator bookkeeping.
     pub fn table_bytes(&self) -> usize {
+        #[cfg(feature = "flat-alias")]
+        let compact_bytes = self.cutoffs.len() * std::mem::size_of::<u32>()
+            + self.slots.len() * std::mem::size_of::<Slot>();
+        #[cfg(not(feature = "flat-alias"))]
+        let compact_bytes = self.buckets.capacity() * std::mem::size_of::<Bucket>();
         self.symbols.capacity() * std::mem::size_of::<Symbol>()
-            + self.cutoffs.len() * std::mem::size_of::<u32>()
-            + self.slots.len() * std::mem::size_of::<Slot>()
+            + compact_bytes
             + self.segments.capacity() * std::mem::size_of::<Segment>()
             + self
                 .encode_table
@@ -278,10 +292,22 @@ impl Model {
             };
         }
         let word = u32::from(word);
-        let bucket = (word >> self.shift) as usize;
-        // A boolean index permits branch-free addressing instead of choosing
-        // between two references with an unpredictable conditional jump.
-        let slot = &self.slots[2 * bucket + usize::from(word & self.mask >= self.cutoffs[bucket])];
+        #[cfg(feature = "flat-alias")]
+        let slot = {
+            let bucket = (word >> self.shift) as usize;
+            // Boolean-index addressing trades fixed-model throughput against
+            // extra dependent loads in some conditional-model workloads.
+            &self.slots[2 * bucket + usize::from(word & self.mask >= self.cutoffs[bucket])]
+        };
+        #[cfg(not(feature = "flat-alias"))]
+        let slot = {
+            let bucket = &self.buckets[(word >> self.shift) as usize];
+            if word & self.mask < bucket.cutoff {
+                &bucket.left
+            } else {
+                &bucket.right
+            }
+        };
         DecodedSymbol {
             symbol: slot.symbol,
             frequency: slot.frequency,

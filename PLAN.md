@@ -84,10 +84,18 @@ rANS matter; SIMD and alias variants remain mandatory before broad claims.
 - Reciprocal encoder, binary segment lookup, opt-in direct tables and 1/2/4/8
   scalar states implemented; four-state C ABI measured against four-state rANS.
 - Initial benchmark report records wins and losses; no general rANS superiority claim.
+- Added unmodified alias and SSE4.1 rANS comparisons, including matched-probability
+  12-bit workloads and real `book1` data. Short/tail/file adapters pass ASan/UBSan.
+- Flat alias slots reduce four-state compact `book1` decoding from 6.67 to 4.56
+  ns/symbol in an adjacent comparison, with unchanged payload/table storage.
+  Native 256-model switching regresses from 10.99 to 18.96 ns/symbol, so this
+  experiment is opt-in (`flat-alias`), not the default. All results are reported.
 - Published https://github.com/YimingQiao/delayed-coding; initial Rust/MSRV/C/legacy CI passed.
 - 2026-09-13: libFuzzer with AddressSanitizer completed 36,946 inputs in 61 seconds
   without a crash. Miri passed the C ABI ownership/buffer test (144 seconds).
   These are bounded checks, not a proof of memory safety or corruption detection.
 - Independent downstream CMake consumer passed; safety and downstream checks added to CI.
+- The [conditional C++ integration design](docs/BLITZCRANK_INTEGRATION.md) identifies
+  mixed alias/interval/raw-word requirements; a block-only link is not a migration.
 - Pending: continued loop optimization, broader comparisons, fuzzing, explicit
   per-symbol/conditional C++ integration costs and end-to-end Blitzcrank migration.

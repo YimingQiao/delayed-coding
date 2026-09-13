@@ -59,6 +59,11 @@ delayed-coding = { git = "https://github.com/YimingQiao/delayed-coding", rev = "
 - `Model::with_tables`: optional 128 KiB encode and/or 512 KiB decode tables.
   Compact alias tables are the default; table choices do not change payloads.
 
+The optional Cargo feature `flat-alias` experiments with branch-free alias
+addressing. It helps some fixed-model blocks but regresses measured conditional
+model switching, so it is disabled by default. See the benchmark report before
+enabling it; it does not change payload bytes.
+
 The core forbids unsafe code. Models are immutable and shareable; each encoder
 owns its workspace and each decoder owns its state. The encoder still needs a
 forward scheduling pass and a backward embedding pass; this is not an online

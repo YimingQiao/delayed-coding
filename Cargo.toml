@@ -20,6 +20,8 @@ resolver = "2"
 default = []
 # Differential testing and ablation; changes speed, never the bitstream.
 reference-division = []
+# Experimental fixed-model tradeoff; regresses some conditional/many-model loops.
+flat-alias = []
 
 [[bench]]
 name = "throughput"

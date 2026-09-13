@@ -1,0 +1,87 @@
+diff --git a/src/model.rs b/src/model.rs
+index 2a62e8a..ab95d30 100644
+--- a/src/model.rs
++++ b/src/model.rs
+@@ -20,10 +20,10 @@ struct Slot {
+ }
+ 
+ #[derive(Clone, Copy, Debug)]
++#[repr(C, align(16))]
+ struct Bucket {
+     cutoff: u32,
+-    left: Slot,
+-    right: Slot,
++    slots: [Slot; 2],
+ }
+ 
+ #[derive(Clone, Copy, Debug)]
+@@ -95,8 +95,7 @@ impl Model {
+         let mut buckets = vec![
+             Bucket {
+                 cutoff: 0,
+-                left: zero,
+-                right: zero
++                slots: [zero; 2],
+             };
+             bucket_count
+         ];
+@@ -105,16 +104,18 @@ impl Model {
+             let (left_weight, left_symbol) = small.pop().unwrap_or((0, right_symbol));
+             *bucket = Bucket {
+                 cutoff: left_weight,
+-                left: Slot {
+-                    symbol: left_symbol,
+-                    frequency: frequencies[left_symbol as usize],
+-                    adjustment: 0,
+-                },
+-                right: Slot {
+-                    symbol: right_symbol,
+-                    frequency: frequencies[right_symbol as usize],
+-                    adjustment: 0,
+-                },
++                slots: [
++                    Slot {
++                        symbol: left_symbol,
++                        frequency: frequencies[left_symbol as usize],
++                        adjustment: 0,
++                    },
++                    Slot {
++                        symbol: right_symbol,
++                        frequency: frequencies[right_symbol as usize],
++                        adjustment: 0,
++                    },
++                ],
+             };
+             let remaining = right_weight - (bucket_size - left_weight);
+             let list = if remaining < bucket_size {
+@@ -128,10 +129,11 @@ impl Model {
+         let mut lists: Vec<Vec<Segment>> = vec![Vec::new(); frequencies.len()];
+         let mut position = 0u32;
+         for bucket in &mut buckets {
+-            for (slot, weight) in [
+-                (&mut bucket.left, bucket.cutoff),
+-                (&mut bucket.right, bucket_size - bucket.cutoff),
+-            ] {
++            for (slot, weight) in bucket
++                .slots
++                .iter_mut()
++                .zip([bucket.cutoff, bucket_size - bucket.cutoff])
++            {
+                 let id = slot.symbol as usize;
+                 slot.adjustment = position as i32 - assigned[id] as i32;
+                 if weight != 0 {
+@@ -275,11 +277,9 @@ impl Model {
+         }
+         let word = u32::from(word);
+         let bucket = &self.buckets[(word >> self.shift) as usize];
+-        let slot = if word & self.mask < bucket.cutoff {
+-            &bucket.left
+-        } else {
+-            &bucket.right
+-        };
++        // A boolean index permits branch-free addressing instead of choosing
++        // between two references with an unpredictable conditional jump.
++        let slot = &bucket.slots[usize::from(word & self.mask >= bucket.cutoff)];
+         DecodedSymbol {
+             symbol: slot.symbol,
+             frequency: slot.frequency,

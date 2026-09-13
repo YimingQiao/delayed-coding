@@ -19,6 +19,7 @@ jobs:
       - run: cargo test --workspace --offline --locked
       - run: cargo test --workspace --release --offline --locked
       - run: cargo test --features reference-division --offline --locked
+      - run: cargo test --workspace --all-features --release --offline --locked
       - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j2 && ctest --test-dir build --output-on-failure
       - run: cmake -S tests/cmake_consumer -B build-consumer -DDELAYED_CODING_SOURCE_DIR="$PWD" && cmake --build build-consumer -j2 && ctest --test-dir build-consumer --output-on-failure
   safety:
@@ -52,6 +53,7 @@ jobs:
           path: original-blitzcrank
           lfs: false
       - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DDELAYED_CODING_BLITZCRANK_DIR="$PWD/original-blitzcrank" && cmake --build build -j2 && ctest --test-dir build --output-on-failure
+      - run: cmake -S . -B build-flat -DCMAKE_BUILD_TYPE=Release -DDELAYED_CODING_FLAT_ALIAS=ON -DDELAYED_CODING_BLITZCRANK_DIR="$PWD/original-blitzcrank" && cmake --build build-flat -j2 && ctest --test-dir build-flat --output-on-failure
   rans:
     runs-on: ubuntu-latest
     steps:

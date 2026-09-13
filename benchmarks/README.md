@@ -109,3 +109,9 @@ cargo test --features reference-division
 Record `rustc -Vv`, C++ compiler version, `lscpu`, CPU affinity, dependency
 commits, dirty diff (if any) and command line with every result. Measure setup and
 container costs separately before using numbers to choose an application codec.
+
+For the experimental flat alias layout, configure a separate CMake build with
+`-DDELAYED_CODING_FLAT_ALIAS=ON`, or run Rust benchmarks with
+`cargo bench --features flat-alias --bench throughput -- 4096`.
+Compare fixed models **and** model switching; the latter regresses substantially
+in the initial experiment, which is why this feature is not enabled by default.
