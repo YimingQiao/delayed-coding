@@ -42,6 +42,11 @@ if(DELAYED_CODING_BLITZCRANK_DIR)
     add_executable(legacy_differential tests/legacy_differential.cpp
         "${DELAYED_CODING_BLITZCRANK_DIR}/delayed_coding/src/utility.cpp")
     target_compile_features(legacy_differential PRIVATE cxx_std_17)
+    # The research header relied on transitive <cstdint> includes removed in
+    # newer libstdc++. Supply the missing standard header without editing oracle code.
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(legacy_differential PRIVATE -include cstdint)
+    endif()
     target_include_directories(legacy_differential PRIVATE
         "${DELAYED_CODING_BLITZCRANK_DIR}/delayed_coding/include")
     target_link_libraries(legacy_differential PRIVATE DelayedCoding::delayed_coding)
