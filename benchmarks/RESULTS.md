@@ -57,3 +57,8 @@ across these four distributions. This is approximately 17–19% less time, witho
 the 512 KiB decode table. Four-state rANS64 remained around 2.11–2.22 ns/symbol.
 Scalar throughput was largely unchanged. This is a measured implementation
 improvement, not a new compressed format.
+
+A subsequent chunked-loop experiment attempted to expose fixed lane indices to
+the optimizer. It regressed four-state decoding to roughly 3.4–3.9 ns/symbol in
+this build and was reverted. The `2026-09-13-...-batched.csv` file retains those
+negative results. The simpler per-symbol loop remains the default.

@@ -17,6 +17,11 @@ cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
 
+Changes touching decoder bounds or the C ABI should also run the
+[fuzz and Miri checks](fuzz/README.md). The separate fuzz package keeps development
+dependencies out of the runtime crate. CI includes a short fuzz smoke test; longer
+local runs are useful before releases.
+
 Algorithm changes should preserve golden/reference behavior or explicitly change
 the documented experimental format. Include an independent oracle or property
 that would fail for the original bug. Never silently modify the original

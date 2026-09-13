@@ -31,8 +31,8 @@ pass followed by a backward embedding pass.
 - [x] Property and boundary tests; all 65,536 code points checked for model inverses.
 - [x] Bit-exact comparison against Blitzcrank main `0ed9c97` at delay 24 (1120 blocks).
 - [x] Reproducible scalar and four-state delayed / upstream rANS byte / rANS64 benchmarks.
-- [ ] Debug, Release, Clippy, Rust/C consumer and sanitizer checks.
-- [ ] Personal GitHub repository with source, tests, CI and reproducibility instructions.
+- [x] Debug, Release, Clippy, Rust/C consumer and sanitizer checks.
+- [x] Personal GitHub repository with source, tests, CI and reproducibility instructions.
 
 ### B — measured optimization (day 1–2)
 
@@ -46,7 +46,7 @@ pass followed by a backward embedding pass.
 ### C — integration and adoption (day 2–3)
 
 - [x] Thin block C interface and error contract; C caller example and test.
-- [ ] Fuzz harness and retained regression inputs; corrupted/truncated payload tests.
+- [x] Fuzz harness and corrupted/truncated payload tests; retain inputs if bugs are found.
 - [ ] Blitzcrank dependency adapter on an isolated branch; default research checkout untouched.
 - [ ] End-to-end table/record roundtrip and random-access checks after migration.
 - [ ] Format/compatibility policy; keep new container formats explicitly experimental.
@@ -84,5 +84,10 @@ rANS matter; SIMD and alias variants remain mandatory before broad claims.
 - Reciprocal encoder, binary segment lookup, opt-in direct tables and 1/2/4/8
   scalar states implemented; four-state C ABI measured against four-state rANS.
 - Initial benchmark report records wins and losses; no general rANS superiority claim.
+- Published https://github.com/YimingQiao/delayed-coding; initial Rust/MSRV/C/legacy CI passed.
+- 2026-09-13: libFuzzer with AddressSanitizer completed 36,946 inputs in 61 seconds
+  without a crash. Miri passed the C ABI ownership/buffer test (144 seconds).
+  These are bounded checks, not a proof of memory safety or corruption detection.
+- Independent downstream CMake consumer passed; safety and downstream checks added to CI.
 - Pending: continued loop optimization, broader comparisons, fuzzing, explicit
   per-symbol/conditional C++ integration costs and end-to-end Blitzcrank migration.

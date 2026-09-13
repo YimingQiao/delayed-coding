@@ -12,6 +12,7 @@ categories = ["compression", "algorithms"]
 
 [workspace]
 members = ["ffi"]
+exclude = ["fuzz"]
 default-members = ["."]
 resolver = "2"
 

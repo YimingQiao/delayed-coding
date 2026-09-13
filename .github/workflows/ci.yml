@@ -20,6 +20,26 @@ jobs:
       - run: cargo test --workspace --release --offline --locked
       - run: cargo test --features reference-division --offline --locked
       - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j2 && ctest --test-dir build --output-on-failure
+      - run: cmake -S tests/cmake_consumer -B build-consumer -DDELAYED_CODING_SOURCE_DIR="$PWD" && cmake --build build-consumer -j2 && ctest --test-dir build-consumer --output-on-failure
+  safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2026-09-13
+          components: miri, rust-src, rustfmt
+      - run: cargo fmt --manifest-path fuzz/Cargo.toml --check
+      - run: cargo miri test -p delayed-coding-ffi --test api
+      - run: cargo install cargo-fuzz --version 0.13.2 --locked
+      - run: cargo fuzz run codec -- -max_total_time=60 -max_len=4096 -print_final_stats=1
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: fuzz-crashes
+          path: fuzz/artifacts/
+          if-no-files-found: ignore
   legacy:
     runs-on: ubuntu-latest
     steps:

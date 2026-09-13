@@ -6,7 +6,7 @@ use delayed_coding::{decode_into, encode_into, Error, Model, TableOptions, Works
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DcStatus {
     Ok = 0,
     InvalidArgument = 1,
