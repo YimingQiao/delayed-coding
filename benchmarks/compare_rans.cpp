@@ -18,6 +18,11 @@
 using Clock = std::chrono::steady_clock;
 static volatile uint64_t checksum = 0;
 static bool validate_only = false;
+#ifdef DELAYED_CODING_HAVE_RANS_SIMD
+static constexpr uint32_t probability_scale = 4096;
+#else
+static constexpr uint32_t probability_scale = 65536;
+#endif
 static void require(bool condition) { if (!condition) throw std::runtime_error("benchmark validation failed"); }
 
 struct Model {
@@ -39,6 +44,9 @@ struct Model {
 
 #ifdef DELAYED_CODING_HAVE_RANS_ALIAS
 #include "ryg_alias_adapter.h"
+#endif
+#ifdef DELAYED_CODING_HAVE_RANS_SIMD
+#include "ryg_simd_adapter.h"
 #endif
 
 struct Delayed {
@@ -182,6 +190,14 @@ static void benchmark_input(const std::string &distribution, const Model &model,
     measure(distribution, "rans_alias_1", a1, input);
     measure(distribution, "rans_alias_4", a4, input);
 #endif
+#ifdef DELAYED_CODING_HAVE_RANS_SIMD
+    if (*std::max_element(model.frequencies.begin(), model.frequencies.end()) < 65536) {
+        RansSimd simd(model, count);
+        measure(distribution, "rans_sse41_4", simd, input);
+    } else {
+        std::cerr << "upstream SIMD variant skipped: one-symbol model is unsupported\n";
+    }
+#endif
 }
 
 // A deterministic shared normalization policy, performed once outside timing.
@@ -191,7 +207,7 @@ static std::array<uint32_t, 256> normalize_counts(const std::vector<uint32_t> &i
     for (auto symbol : input)
         ++counts[symbol];
     const uint32_t active = std::count_if(counts.begin(), counts.end(), [](auto n) { return n != 0; });
-    const uint64_t remaining = 65536 - active;
+    const uint64_t remaining = probability_scale - active;
     std::vector<std::pair<uint64_t, unsigned>> remainders;
     uint32_t assigned = 0;
     for (unsigned symbol = 0; symbol < 256; ++symbol) {
@@ -204,7 +220,8 @@ static std::array<uint32_t, 256> normalize_counts(const std::vector<uint32_t> &i
     std::sort(remainders.begin(), remainders.end(), [](auto a, auto b) {
         return a.first != b.first ? a.first > b.first : a.second < b.second;
     });
-    for (size_t i = 0; i < 65536 - assigned; ++i) ++weights[remainders.at(i).second];
+    for (size_t i = 0; i < probability_scale - assigned; ++i) ++weights[remainders.at(i).second];
+    for (auto& weight : weights) weight *= 65536 / probability_scale;
     return weights;
 }
 
@@ -223,6 +240,10 @@ static std::vector<uint32_t> read_symbols(const std::string& path) {
 
 int main(int argc, char** argv) {
     try {
+#ifdef DELAYED_CODING_HAVE_RANS_SIMD
+        if (!__builtin_cpu_supports("sse4.1")) throw std::runtime_error("SSE4.1 CPU required");
+        std::cerr << "12-bit probability suite: all weights scaled exactly to 16 bits for non-SIMD codecs\n";
+#endif
         const bool from_file = argc > 1 && std::string(argv[1]) == "--file";
         const int base_args = from_file ? 3 : 2;
         if ((from_file && argc < 3) || argc > base_args + 1 ||
@@ -234,21 +255,22 @@ int main(int argc, char** argv) {
         if (from_file) {
             const auto input = read_symbols(argv[2]);
             const Model model(normalize_counts(input));
-            benchmark_input("file", model, input);
+            benchmark_input(probability_scale == 4096 ? "file_p12" : "file", model, input);
         } else {
             const size_t count = argc > 1 ? std::stoull(argv[1]) : 4096;
             if (count == 0 || count > (1u << 26)) throw std::invalid_argument("symbols must be 1..67108864");
             std::mt19937 random(123456);
             for (const std::string distribution : {"uniform256", "uniform16", "skewed", "near_constant"}) {
                 std::array<uint32_t, 256> weights{};
-                if (distribution == "uniform256") weights.fill(256);
-                if (distribution == "uniform16") for (size_t i = 0; i < 16; ++i) weights[i] = 4096;
-                if (distribution == "skewed") { weights.fill(128); weights[0] += 32768; }
-                if (distribution == "near_constant") { weights.fill(1); weights[0] = 65536 - 255; }
+                if (distribution == "uniform256") weights.fill(probability_scale / 256);
+                if (distribution == "uniform16") for (size_t i = 0; i < 16; ++i) weights[i] = probability_scale / 16;
+                if (distribution == "skewed") { weights.fill(probability_scale / 512); weights[0] += probability_scale / 2; }
+                if (distribution == "near_constant") { weights.fill(1); weights[0] = probability_scale - 255; }
+                for (auto& weight : weights) weight *= 65536 / probability_scale;
                 const Model model(weights);
                 std::vector<uint32_t> input(count);
                 for (auto& symbol : input) symbol = model.lookup[random() & 65535];
-                benchmark_input(distribution, model, input);
+                benchmark_input(distribution + (probability_scale == 4096 ? "_p12" : ""), model, input);
             }
         }
         std::cerr << "validation checksum=" << checksum << '\n';

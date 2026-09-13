@@ -49,8 +49,7 @@ best possible rANS encoder); their main purpose is a compact-lookup decoder comp
   symbols to every codec. File I/O, histogram construction and model setup are
   excluded. This is a zero-order entropy-kernel test, not whole-file compression;
   it omits model metadata and does not exercise chunked/random-access storage.
-- The C++ harness currently covers fixed models. SIMD rANS,
-  randomized access, many-model comparisons
+- The C++ harness currently covers fixed models. Randomized access, many-model comparisons
   against rANS, hardware counters and whole-block model/framing cost remain work.
 - Do not mix CPU flags, compilers, probability precision or lane counts without
   stating it. The initial CSVs use generic x86-64 Rust and GCC Release defaults,
@@ -65,6 +64,36 @@ cargo bench --bench throughput -- 4096
 # Optional real byte file, <=64 MiB:
 cargo bench --bench throughput -- 4096 /path/to/file
 ```
+
+## SSE4.1 comparison (separate probability suite)
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+  -DDELAYED_CODING_RANS_DIR=/tmp/ryg_rans \
+  -DDELAYED_CODING_BUILD_SIMD_BENCHMARK=ON
+cmake --build build -j
+taskset -c 2 ./build/compare_rans_simd 4096
+taskset -c 2 ./build/compare_rans_simd --file /tmp/ryg_rans/book1
+```
+
+Requires x86 Linux/Windows, GCC/Clang and an SSE4.1-capable CPU. This separate
+executable compiles C++ with `-msse4.1`; the Rust core retains its ordinary flags.
+It uses the unmodified `rans_word_sse41.h` four-state decoder. That implementation
+fixes probability precision at 12 bits: the entire suite first constructs 12-bit
+weights and multiplies them by 16 for all non-SIMD codecs. Thus probabilities and
+input symbols match exactly within a run. Rows carry `_p12`; especially the
+near-constant model differs from the ordinary 16-bit suite, so do not mix rows.
+
+The upstream SIMD encoder uses division. Its decoder uses a 20 KiB table, then
+widening stores to the same u32 output used by other codecs. State initialization,
+scalar tails, normalization and final checks are included. Upstream requires eight
+readable bytes after the payload; the harness allocates that padding but excludes
+it from `payload_bytes`. This extra requirement does not apply to the bounded
+Rust decoder. The upstream SIMD encoder cannot handle a full-frequency one-symbol
+model, so that variant is explicitly skipped for such a file rather than changed.
+
+These are illustrative upstream SIMD kernels, not a comparison against every
+modern vectorized rANS implementation or a maximum-throughput byte-output test.
 
 ## Ablation
 

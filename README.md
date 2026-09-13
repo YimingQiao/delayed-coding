@@ -7,7 +7,7 @@ embedding in C/C++ systems.
 **Status: experimental, pre-release.** The Rust core and C ABI work, and scalar
 24-bit payloads are checked against the original Blitzcrank implementation.
 The crate is not yet published to crates.io. API and new format conventions are
-not frozen. SIMD rANS comparisons and full Blitzcrank migration are still pending.
+not frozen. Full Blitzcrank migration and release acceptance are still pending.
 
 Delayed Coding encodes a sequence of symbols using caller-provided probability
 models. It decodes forward and lets the caller select a different model for every
@@ -85,7 +85,8 @@ models still need a separately measured adapter.
 pinned upstream ryg_rans**, including scalar and four-state byte/64-bit and
 compact alias variants (the latter on x86 Linux/Windows).
 Both sides consume/produce the same u32 symbol representation and use identical
-16-bit normalized frequencies. Reports include payload size alongside speed.
+16-bit normalized frequencies. An opt-in SSE4.1 comparison uses a separate,
+probability-matched 12-bit suite. Reports include payload size alongside speed.
 
 There is no general claim of outperforming rANS. Current measurements are kernel
 experiments on one x86-64 machine, with prebuilt models and reused buffers. They

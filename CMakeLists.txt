@@ -5,6 +5,7 @@ set(DELAYED_CODING_RANS_DIR "" CACHE PATH "Optional pinned upstream ryg_rans che
 set(DELAYED_CODING_BLITZCRANK_DIR "" CACHE PATH "Optional original Blitzcrank checkout")
 option(DELAYED_CODING_BUILD_TESTS "Build C ABI checks" ON)
 option(DELAYED_CODING_REFERENCE_DIVISION "Use exact division instead of reciprocal (ablation)" OFF)
+option(DELAYED_CODING_BUILD_SIMD_BENCHMARK "Build separate SSE4.1 / 12-bit probability benchmark" OFF)
 set(rust_target_dir "${CMAKE_CURRENT_BINARY_DIR}/cargo-target")
 if(WIN32)
     set(rust_library "${rust_target_dir}/release/delayed_coding_ffi.lib")
@@ -67,12 +68,34 @@ if(DELAYED_CODING_RANS_DIR)
        CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64|i.86)$")
         target_compile_definitions(compare_rans PRIVATE DELAYED_CODING_HAVE_RANS_ALIAS=1)
     endif()
+    if(DELAYED_CODING_BUILD_SIMD_BENCHMARK)
+        if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64|i.86)$" OR
+           NOT CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" OR
+           NOT (WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Linux"))
+            message(FATAL_ERROR "The SIMD benchmark requires x86 Linux/Windows and GCC/Clang")
+        endif()
+        add_executable(compare_rans_simd benchmarks/compare_rans.cpp)
+        target_compile_features(compare_rans_simd PRIVATE cxx_std_17)
+        target_compile_options(compare_rans_simd PRIVATE -msse4.1)
+        target_compile_definitions(compare_rans_simd PRIVATE
+            DELAYED_CODING_HAVE_RANS_ALIAS=1 DELAYED_CODING_HAVE_RANS_SIMD=1)
+        target_include_directories(compare_rans_simd PRIVATE "${DELAYED_CODING_RANS_DIR}")
+        target_link_libraries(compare_rans_simd PRIVATE DelayedCoding::delayed_coding)
+    endif()
     if(DELAYED_CODING_BUILD_TESTS)
         foreach(symbol_count 1 3 4 5 17 4097)
             add_test(NAME rans_roundtrip_${symbol_count}
                 COMMAND compare_rans ${symbol_count} --check)
+            if(DELAYED_CODING_BUILD_SIMD_BENCHMARK)
+                add_test(NAME rans_simd_roundtrip_${symbol_count}
+                    COMMAND compare_rans_simd ${symbol_count} --check)
+            endif()
         endforeach()
         add_test(NAME rans_file_roundtrip
             COMMAND compare_rans --file "${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt" --check)
+        if(DELAYED_CODING_BUILD_SIMD_BENCHMARK)
+            add_test(NAME rans_simd_file_roundtrip
+                COMMAND compare_rans_simd --file "${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt" --check)
+        endif()
     endif()
 endif()
