@@ -17,6 +17,7 @@
 
 using Clock = std::chrono::steady_clock;
 static volatile uint64_t checksum = 0;
+static bool validate_only = false;
 static void require(bool condition) { if (!condition) throw std::runtime_error("benchmark validation failed"); }
 
 struct Model {
@@ -35,6 +36,10 @@ struct Model {
         require(position == 65536);
     }
 };
+
+#ifdef DELAYED_CODING_HAVE_RANS_ALIAS
+#include "ryg_alias_adapter.h"
+#endif
 
 struct Delayed {
     DcModel* model = nullptr;
@@ -135,6 +140,7 @@ void measure(const std::string& distribution, const std::string& name, Codec& co
              const std::vector<uint32_t>& input) {
     std::vector<uint32_t> output(input.size());
     codec.encode(input); codec.decode(output); require(output == input);
+    if (validate_only) return;
     const auto bytes = codec.bytes();
     const size_t repeats = std::max<size_t>(1, 262144 / input.size());
     const double encode_ns = median_ns(repeats, [&] { codec.encode(input); checksum += codec.bytes(); });
@@ -148,6 +154,9 @@ void measure(const std::string& distribution, const std::string& name, Codec& co
 int main(int argc, char** argv) {
     try {
         const size_t count = argc > 1 ? std::stoull(argv[1]) : 4096;
+        if (argc > 3 || (argc == 3 && std::string(argv[2]) != "--check"))
+            throw std::invalid_argument("usage: compare_rans [symbols] [--check]");
+        validate_only = argc == 3;
         if (count == 0 || count > (1u << 26)) throw std::invalid_argument("symbols must be 1..67108864");
         std::mt19937 random(123456);
         std::cout << "distribution,symbols,codec,payload_bytes,bits_per_symbol,encode_ns_per_symbol,decode_ns_per_symbol,encode_ns_per_block,decode_ns_per_block\n";
@@ -166,6 +175,9 @@ int main(int argc, char** argv) {
             Delayed d4(model, count, 24, 0, 4), d4e(model, count, 24, 1, 4), d4b(model, count, 24, 3, 4);
             Rans<1, false> b1(model, count); Rans<4, false> b4(model, count);
             Rans<1, true> w1(model, count); Rans<4, true> w4(model, count);
+#ifdef DELAYED_CODING_HAVE_RANS_ALIAS
+            RansAlias<1> a1(model, count); RansAlias<4> a4(model, count);
+#endif
             measure(distribution, "delayed16", d16, input);
             measure(distribution, "delayed24", d24, input);
             measure(distribution, "delayed32", d32, input);
@@ -179,6 +191,10 @@ int main(int argc, char** argv) {
             measure(distribution, "rans_byte_4", b4, input);
             measure(distribution, "rans64_1", w1, input);
             measure(distribution, "rans64_4", w4, input);
+#ifdef DELAYED_CODING_HAVE_RANS_ALIAS
+            measure(distribution, "rans_alias_1", a1, input);
+            measure(distribution, "rans_alias_4", a4, input);
+#endif
         }
         std::cerr << "validation checksum=" << checksum << '\n';
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }

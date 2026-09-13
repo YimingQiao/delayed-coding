@@ -62,4 +62,15 @@ if(DELAYED_CODING_RANS_DIR)
     target_compile_features(compare_rans PRIVATE cxx_std_17)
     target_include_directories(compare_rans PRIVATE "${DELAYED_CODING_RANS_DIR}")
     target_link_libraries(compare_rans PRIVATE DelayedCoding::delayed_coding)
+    # Upstream alias demo's platform.h uses x86 intrinsics and Linux/Windows timers.
+    if((WIN32 OR CMAKE_SYSTEM_NAME STREQUAL "Linux") AND
+       CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64|i.86)$")
+        target_compile_definitions(compare_rans PRIVATE DELAYED_CODING_HAVE_RANS_ALIAS=1)
+    endif()
+    if(DELAYED_CODING_BUILD_TESTS)
+        foreach(symbol_count 1 3 4 5 17 4097)
+            add_test(NAME rans_roundtrip_${symbol_count}
+                COMMAND compare_rans ${symbol_count} --check)
+        endforeach()
+    endif()
 endif()

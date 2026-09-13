@@ -82,7 +82,8 @@ models still need a separately measured adapter.
 ## Performance and validation
 
 [Benchmark instructions](benchmarks/README.md) compare against **unmodified,
-pinned upstream ryg_rans**, including scalar and four-state byte/64-bit variants.
+pinned upstream ryg_rans**, including scalar and four-state byte/64-bit and
+compact alias variants (the latter on x86 Linux/Windows).
 Both sides consume/produce the same u32 symbol representation and use identical
 16-bit normalized frequencies. Reports include payload size alongside speed.
 
